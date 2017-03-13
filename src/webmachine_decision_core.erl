@@ -735,7 +735,6 @@ variances() ->
     end,
     Accept ++ AcceptEncoding ++ AcceptCharset ++ resource_call(variances).
 
--ifndef(old_hash).
 md5(Bin) ->
     crypto:hash(md5, Bin).
 
@@ -747,19 +746,6 @@ md5_update(Ctx, Bin) ->
 
 md5_final(Ctx) ->
     crypto:hash_final(Ctx).
--else.
-md5(Bin) ->
-    crypto:md5(Bin).
-
-md5_init() ->
-    crypto:md5_init().
-
-md5_update(Ctx, Bin) ->
-    crypto:md5_update(Ctx, Bin).
-
-md5_final(Ctx) ->
-    crypto:md5_final(Ctx).
--endif.
 
 
 compute_body_md5() ->
