@@ -100,9 +100,10 @@
 -include("wm_reqstate.hrl").
 -include("wm_reqdata.hrl").
 
--define(WMVSN, "1.10.9").
--define(QUIP, "cafe not found").
 -define(IDLE_TIMEOUT, infinity).
+
+-type t() :: {?MODULE, #wm_reqstate{}}.
+-export_type([t/0]).
 
 new(#wm_reqstate{}=ReqState) ->
     {?MODULE, ReqState}.
@@ -147,6 +148,8 @@ get_sock({?MODULE, ReqState} = Req) ->
 get_sock(ReqState) ->
     get_sock({?MODULE, ReqState}).
 
+peer_from_peername({error, Error}, _Req) ->
+    {error, Error};
 peer_from_peername({ok, {Addr={10, _, _, _}, _Port}}, Req) ->
     x_peername(inet_parse:ntoa(Addr), Req);
 peer_from_peername({ok, {Addr={172, Second, _, _}, _Port}}, Req)
@@ -262,7 +265,8 @@ call(do_redirect, {?MODULE, ReqState}) ->
            reqdata=wrq:do_redirect(true, ReqState#wm_reqstate.reqdata)}};
 call({send_response, Code}, Req) when is_integer(Code) ->
     call({send_response, {Code, undefined}}, Req);
-call({send_response, {Code, ReasonPhrase}=CodeAndReason}, Req) when is_integer(Code) ->
+call({send_response, {Code, ReasonPhrase}=CodeAndReason}, Req)
+  when is_integer(Code) ->
     {Reply, NewState} =
         case Code of
             200 ->
@@ -279,11 +283,11 @@ call({set_resp_body, Body}, {?MODULE, ReqState}) ->
     {ok, ReqState#wm_reqstate{reqdata=wrq:set_resp_body(Body,
                                        ReqState#wm_reqstate.reqdata)}};
 call(has_resp_body, {?MODULE, ReqState}) ->
-    Reply = case wrq:resp_body(ReqState#wm_reqstate.reqdata) of
-                undefined -> false;
-                <<>> -> false;
-                _ -> true
-            end,
+    Reply =
+        case wrq:resp_body(ReqState#wm_reqstate.reqdata) of
+            <<>> -> false;
+            _ -> true
+        end,
     {Reply, ReqState};
 call({get_metadata, Key}, {?MODULE, ReqState}) ->
     Reply = case orddict:find(Key, ReqState#wm_reqstate.metadata) of
@@ -640,7 +644,7 @@ parts_to_body(BodyList, Size, Req) when is_list(BodyList) ->
             {CT, _} ->
                 CT
         end,
-    Boundary = mochihex:to_hex(crypto:rand_bytes(8)),
+    Boundary = mochihex:to_hex(crypto:strong_rand_bytes(8)),
     HeaderList = [{"Content-Type",
                    ["multipart/byteranges; ",
                     "boundary=", Boundary]}],
@@ -738,10 +742,9 @@ make_headers(Code, Length, RD) when is_integer(Code) ->
                       mochiweb_headers:make(wrq:resp_headers(RD)))
             end
     end,
-    case application:get_env(webmachine, server_name) of
-      undefined -> ServerHeader = "MochiWeb/1.1 WebMachine/" ++ ?WMVSN ++ " (" ++ ?QUIP ++ ")";
-      {ok, ServerHeader} when is_list(ServerHeader) -> ok
-    end,
+    %% server_name is guaranteed to be set by
+    %% webmachine_app:load_default_app_config/0
+    {ok, ServerHeader} = application:get_env(webmachine, server_name),
     WithSrv = mochiweb_headers:enter("Server", ServerHeader, Hdrs0),
     Hdrs = case mochiweb_headers:get_value("date", WithSrv) of
         undefined ->

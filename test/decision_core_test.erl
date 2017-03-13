@@ -240,8 +240,6 @@ md5(Bin) ->
 %%
 core_tests() ->
     [fun service_unavailable/0,
-     fun ping_invalid/0,
-     fun ping_error/0,
      fun internal_server_error_o18/0,
      fun not_implemented_b12/0,
      fun not_implemented_b6/0,
@@ -305,7 +303,7 @@ core_tests() ->
      fun head_length_access_for_cs/0,
      fun get_known_length_for_cs/0,
      fun get_for_range_capable_stream/0
-     %% known_failure -- fun stream_content_md5/0
+     % known_failure -- fun stream_content_md5/0
     ].
 
 decision_core_test_() ->
@@ -374,24 +372,6 @@ service_unavailable() ->
     ?assertEqual(ExpectedDecisionTrace, get_decision_ids()),
     ok.
 
-%% 503 result via B13 (at ping)
-ping_invalid() ->
-                                                % "breakout" for "anything other than pong"
-    put_setting(ping, breakout),
-    {ok, Result} = httpc:request(head, {url(), []}, [], []),
-    ?assertMatch({{"HTTP/1.1", 503, "Service Unavailable"}, _, _}, Result),
-    ExpectedDecisionTrace = ?PATH_TO_B13,
-    ?assertEqual(ExpectedDecisionTrace, get_decision_ids()),
-    ok.
-
-%% 500 error response result via B13 (ping raises error)
-ping_error() ->
-    put_setting(ping, ping_raise_error),
-    {ok, Result} = httpc:request(head, {url(), []}, [], []),
-    ?assertMatch({{"HTTP/1.1", 500, "Internal Server Error"}, _, _}, Result),
-    ExpectedDecisionTrace = ?PATH_TO_B13,
-    ?assertEqual(ExpectedDecisionTrace, get_decision_ids()),
-    ok.
 
 %% 500 error response via O18 from a callback raising an error
 internal_server_error_o18() ->
@@ -491,7 +471,9 @@ non_standard_method_501() ->
     Port = wm_integration_test_util:get_port(Ctx),
     Url = wm_integration_test_util:url(Ctx, "foo"),
     {ok, Sock} = gen_tcp:connect("localhost", Port, [binary, {active,false}]),
-    ok = gen_tcp:send(Sock, ["FOO ", Url, " HTTP/1.1\r\nConnection: close\r\n\r\n"]),
+    ok = gen_tcp:send(Sock, ["FOO ", Url, " HTTP/1.1\r\n",
+                             "Host: http://localhost:", integer_to_list(Port),
+                             "\r\n\r\n"]),
     ?assertMatch({ok, <<"HTTP/1.1 501 Not Implemented", _/binary>>},
                  gen_tcp:recv(Sock, 0, 2000)),
     ok = gen_tcp:close(Sock),
@@ -506,7 +488,9 @@ non_standard_method_200() ->
     Port = wm_integration_test_util:get_port(Ctx),
     Url = wm_integration_test_util:url(Ctx, "foo"),
     {ok, Sock} = gen_tcp:connect("localhost", Port, [binary, {active,false}]),
-    ok = gen_tcp:send(Sock, [Method, " ", Url, " HTTP/1.1\r\nConnection: close\r\n\r\n"]),
+    ok = gen_tcp:send(Sock, [Method, " ", Url, " HTTP/1.1\r\n",
+                             "Host: http://localhost:", integer_to_list(Port),
+                             "\r\n\r\n"]),
     ?assertMatch({ok, <<"HTTP/1.1 200 OK\r\n", _/binary>>},
                  gen_tcp:recv(Sock, 0, 2000)),
     ok = gen_tcp:close(Sock),
@@ -1376,13 +1360,6 @@ url(Path) ->
 
 init([]) ->
     {ok, undefined}.
-
-ping(ReqData, State) ->
-    Setting = lookup_setting(ping),
-    case Setting of
-        ping_raise_error -> error(foobar);
-        _ -> {Setting, ReqData, State}
-    end.
 
 service_available(ReqData, Context) ->
     Setting = lookup_setting(service_available),
