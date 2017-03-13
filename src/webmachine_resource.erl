@@ -140,16 +140,19 @@ do(Fun, ReqProps,
       trace=R_Trace
      }=Req)
   when is_atom(Fun) andalso is_list(ReqProps) ->
-    case lists:keyfind(reqstate, 1, ReqProps) of
-        false -> RState0 = undefined;
-        {reqstate, RState0} -> ok
-    end,
+    RState1 =
+        case lists:keyfind(reqstate, 1, ReqProps) of
+            false ->
+                undefined;
+            {reqstate, RState0} ->
+                RState0
+        end,
     put(tmp_reqstate, empty),
     {Reply, ReqData, NewModState} = handle_wm_call(Fun,
-                    (RState0#wm_reqstate.reqdata)#wm_reqdata{wm_state=RState0},
+                    (RState1#wm_reqstate.reqdata)#wm_reqdata{wm_state=RState1},
                     Req),
     ReqState = case get(tmp_reqstate) of
-                   empty -> RState0;
+                   empty -> RState1;
                    X -> X
                end,
     %% Do not need the embedded state anymore

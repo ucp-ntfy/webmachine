@@ -517,10 +517,10 @@ recv_chunked_body(Socket, MaxHunk, LeftInChunk) ->
     end.
 
 read_chunk_length(Socket, MaybeLastChunk) ->
-    mochiweb_socket:setopts(Socket, [{packet, line}]),
+    _ = mochiweb_socket:setopts(Socket, [{packet, line}]),
     case mochiweb_socket:recv(Socket, 0, ?IDLE_TIMEOUT) of
         {ok, Header} ->
-            mochiweb_socket:setopts(Socket, [{packet, raw}]),
+            _ = mochiweb_socket:setopts(Socket, [{packet, raw}]),
             Splitter = fun (C) ->
                                C =/= $\r andalso C =/= $\n andalso C =/= $
                                    andalso C =/= 59 % semicolon
