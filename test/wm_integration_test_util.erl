@@ -85,7 +85,7 @@ url(Context, Path) ->
 
 stop_supervisor(Sup) ->
     unlink(Sup),
-    exit(Sup, kill),
+    exit(Sup, normal),
     wait_for_pid(Sup).
 
 %% Wait for a pid to exit -- Copied from riak_kv_test_util.erl

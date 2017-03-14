@@ -55,6 +55,10 @@ upgrade() ->
 %% @spec init([]) -> SupervisorTree
 %% @doc supervisor callback.
 init([]) ->
+    RouterEtsTableManager =
+     {webmachine_router_ets_table,
+         {webmachine_router_ets_table, start_link, []},
+         permanent, 5000, worker, [webmachine_router_ets_table]},
     Router =
         {webmachine_router,
          {webmachine_router, start_link, []},
@@ -66,4 +70,4 @@ init([]) ->
          {webmachine_logger_watcher_sup,
           {webmachine_logger_watcher_sup, start_link, []},
           permanent, 5000, supervisor, [webmachine_logger_watcher_sup]}],
-    {ok, {{one_for_one, 9, 10}, LogHandler ++ [Router]}}.
+    {ok, {{one_for_one, 9, 10}, LogHandler ++ [RouterEtsTableManager, Router]}}.

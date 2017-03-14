@@ -70,6 +70,12 @@
 
 -define(SERVER, ?MODULE).
 
+%% State for this gen_server
+%%
+%% state => true, gen_server is ets router table managed by
+%% webmachine_router_ets_table
+-record(state, {ready = false :: boolean()}).
+
 %% @spec add_route(hostmatchterm() | pathmatchterm()) -> ok
 %% @doc Adds a route to webmachine's route table. The route should
 %%      be the format documented here:
@@ -118,44 +124,34 @@ init_routes(Name, DefaultRoutes) ->
 %% @spec start_link() -> {ok, pid()} | {error, any()}
 %% @doc Starts the webmachine_router gen_server.
 start_link() ->
-    %% We expect to only be called from webmachine_sup
-    %%
-    %% Set up the ETS configuration table.
-    try ets:new(?MODULE, [named_table, public, set, {keypos, 1},
-                {read_concurrency, true}]) of
-        _Result ->
-            ok
-    catch
-        error:badarg ->
-            %% The table already exists, which is fine. The webmachine_router
-            %% probably crashed and this is a restart.
-            ok
-    end,
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @private
 init([]) ->
-    {ok, undefined}.
+    init_router_table(),
+    {ok, #state{ready = false}}.
 
-%% @private
-handle_call({remove_resource, Name, Resource}, _From, State) ->
+handle_call({remove_resource, Name, Resource}, _From, #state{ready = true} = State) ->
     DL = filter_by_resource(Resource, get_dispatch_list(Name)),
     {reply, set_dispatch_list(Name, DL), State};
 
-handle_call({remove_route, Name, Route}, _From, State) ->
+handle_call({remove_route, Name, Route}, _From, #state{ready = true} = State) ->
     DL = [D || D <- get_dispatch_list(Name),
                D /= Route],
     {reply, set_dispatch_list(Name, DL), State};
 
-handle_call({add_route, Name, Route}, _From, State) ->
+handle_call({add_route, Name, Route}, _From, #state{ready = true} = State) ->
     DL = [Route|[D || D <- get_dispatch_list(Name),
                       D /= Route]],
     {reply, set_dispatch_list(Name, DL), State};
 
-handle_call({init_routes, Name, DefaultRoutes}, _From, State) ->
+handle_call({init_routes, Name, DefaultRoutes}, _From, #state{ready = true} = State) ->
     %% if the table lacks a dispatch_list row, set it
     ets:insert_new(?MODULE, {Name, DefaultRoutes}),
     {reply, ok, State};
+
+handle_call(_Request, _From, #state{ready = false} = State) ->
+    {stop, not_ready, State};
 
 handle_call(_Request, _From, State) ->
   {reply, ignore, State}.
@@ -165,6 +161,9 @@ handle_cast(_Msg, State) ->
   {noreply, State}.
 
 %% @private
+handle_info({'ETS-TRANSFER', _Table, _FromPid, _GiftData}, State) ->
+    {noreply, State#state{ready = true}};
+
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -177,6 +176,14 @@ code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
 %% Internal functions
+
+init_router_table() ->
+    case application:get_env(webmachine, become_router_table_owner, true) of
+        true ->
+            webmachine_router_ets_table:become_owner();
+        false ->
+            ok
+    end.
 
 %% @doc Remove any dispatch rule that directs requests to `Resource'
 filter_by_resource(Resource, Dispatch) ->
@@ -214,20 +221,26 @@ set_dispatch_list(Name, DispatchList) ->
 webmachine_router_test_() ->
     {setup,
      fun() ->
-             {ok, Pid} = webmachine_router:start_link(),
+             application:set_env(webmachine, become_router_table_owner, true),
+             {ok, Pid} = webmachine_sup:start_link(),
              unlink(Pid),
              {Pid}
      end,
-     fun({Pid}) ->
-             exit(Pid, kill),
-             wait_for_termination(webmachine_router),
+     fun({SupPid}) ->
+             [begin supervisor:terminate_child(webmachine_sup, ChildPid),
+                    wait_for_termination(ChildPid)
+              end || ChildPid <- get_children(webmachine_sup)],
+             exit(SupPid, normal),
+             wait_for_termination(webmachine_sup)
              %% the test process owns the table, so we clear it between tests
-             ets:delete(?MODULE)
+             %% ets:delete(?MODULE)
      end,
      [{"add_remove_route", fun add_remove_route/0},
       {"add_remove_resource", fun add_remove_resource/0},
-      {"no_dupe_path", fun no_dupe_path/0}
-      ]}.
+      {"no_dupe_path", fun no_dupe_path/0},
+      {"table_manager", fun table_manager/0},
+      {"not_initialized", fun not_initialized/0}
+     ]}.
 
 %% Wait until the given registered name cannot be found, to ensure that
 %% another test can safely start it again via start_link
@@ -284,22 +297,53 @@ no_dupe_path() ->
     ok.
 
 supervisor_restart_keeps_routes_test() ->
-    {ok, Pid} = webmachine_router:start_link(),
+    application:set_env(webmachine, become_router_table_owner, true),
+    {ok, SupPid} = webmachine_sup:start_link(),
+    Pid = get_pid(webmachine_sup, webmachine_router),
     unlink(Pid),
     PathSpec = {["foo"], foo, []},
     webmachine_router:add_route(PathSpec),
     ?assertEqual([PathSpec], get_routes()),
     OldRouter = whereis(webmachine_router),
     ?assertEqual(Pid, OldRouter),
-    exit(whereis(webmachine_router), kill),
+    exit(whereis(webmachine_router), normal),
     timer:sleep(100),
     %% Note: This test is currently broken and wasn't actually testing what it
     %% was supposed to
     NewRouter = undefined,
     ?assert(OldRouter /= NewRouter),
     ?assertEqual([PathSpec], get_routes()),
-    exit(Pid, kill),
-    ets:delete(?MODULE),
+    exit(Pid, normal),
+    exit(SupPid, normal),
+    %% ets:delete(?MODULE),
     ok.
+
+table_manager() ->
+    RouterPid0 = get_pid(webmachine_sup, webmachine_router),
+    ?assertEqual(RouterPid0, webmachine_router_ets_table:current_owner()),
+    _ = supervisor:terminate_child(webmachine_sup, webmachine_router),
+    ?assertEqual(undefined, webmachine_router_ets_table:current_owner()),
+    {ok, RouterPid1} = supervisor:restart_child(webmachine_sup, webmachine_router),
+    ?assertEqual(RouterPid1, webmachine_router_ets_table:current_owner()),
+
+    {links, LinkedPids} = process_info(whereis(webmachine_router_ets_table), links),
+    ?assertEqual(true, lists:member(RouterPid1, LinkedPids)).
+
+not_initialized() ->
+    supervisor:terminate_child(webmachine_sup, webmachine_router),
+    application:set_env(webmachine, become_router_table_owner, false),
+    supervisor:restart_child(webmachine_sup, webmachine_router),
+    PathSpec = {["foo"], foo, []},
+    {'EXIT', {Reason, _Stacktrace}} = (catch webmachine_router:add_route(PathSpec)),
+    ?assertEqual(not_ready, Reason),
+    ok.
+
+get_pid(Sup, SupChild) ->
+    [Pid] = [Pid || {Id, Pid, _, _} <- supervisor:which_children(Sup),
+                    Id == SupChild],
+    Pid.
+
+get_children(Sup) ->
+    [Id || {Id, _, _, _} <- supervisor:which_children(Sup)].
 
 -endif.
