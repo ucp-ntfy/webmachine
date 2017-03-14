@@ -44,6 +44,7 @@ md5(Bin) ->
 -define(PRESENT_YEAR, 2013).
 -define(FIRST_DAY_OF_PRESENT_YEAR, {{?PRESENT_YEAR, 1, 1}, {12, 0, 0}}).
 -define(FIRST_DAY_OF_LAST_YEAR, {{?PRESENT_YEAR - 1, 1, 1}, {12, 0, 0}}).
+-define(SECOND_DAY_OF_LAST_YEAR, {{?PRESENT_YEAR - 1, 1, 2}, {12, 0, 0}}).
 -define(FIRST_DAY_OF_NEXT_YEAR, {{?PRESENT_YEAR + 1, 1, 1}, {12, 0, 0}}).
 
 %% DECISION TRACE PATHS
@@ -891,7 +892,17 @@ not_modified_l17() ->
     put_setting(allowed_methods, ?DEFAULT_ALLOWED_METHODS),
     put_setting(last_modified, ?FIRST_DAY_OF_LAST_YEAR),
     put_setting(expires, ?FIRST_DAY_OF_NEXT_YEAR),
-    RFC1123LastYear = httpd_util:rfc1123_date(?FIRST_DAY_OF_LAST_YEAR),
+    %% Note:
+    %% ?SECOND_DAY_OF_LAST_YEAR for rfc1123_date a
+    %% ?FIRST_DAY_OF_NEXT_YEAR  for last_modified,
+    %%
+    %% Using ?FIRST_DAY_OF_NEXT_YEAR, for rfc1123_date causes test to
+    %% fail in timezones ahead of GMT e.g., CET, because:
+    %%
+    %% FIRST_DAY_OF_NEXT_YEAR = {{2012,1,1},{12,0,0}}, (last modified)
+    %% RFC1123LastYear = "Sun, 01 Jan 2012 11:00:00 GMT"
+    %%
+    RFC1123LastYear = httpd_util:rfc1123_date(?SECOND_DAY_OF_LAST_YEAR),
     Headers = [{"If-Modified-Since", RFC1123LastYear}],
     {ok, Result} = httpc:request(get, {url(), Headers}, [], []),
     ?assertMatch({{"HTTP/1.1", 304, "Not Modified"}, _, _}, Result),
