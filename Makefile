@@ -9,19 +9,19 @@ ARTIFACTSFILE = ${shell echo ${REPO}-`date +%F_%H-%M-%S`.tgz}
 all: deps compile
 
 compile: deps
-	./rebar compile
+	./rebar3 compile
 
 deps: DEV_MODE
-	@(./rebar get-deps)
+	@(./rebar3 get-deps)
 
 clean:
-	@(./rebar clean)
+	@(./rebar3 clean)
 
-# nuke deps first to avoid wasting time having rebar recurse into deps
+# nuke deps first to avoid wasting time having rebar3 recurse into deps
 # for clean
 distclean:
-	@rm -rf ./deps ./.rebar
-	@(./rebar clean)
+	@rm -rf ./deps ./.rebar3
+	@(./rebar3 clean)
 
 edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'
@@ -29,15 +29,13 @@ DIALYZER_APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto in
 	xmerl webtool snmp public_key mnesia eunit syntax_tools compiler
 COMBO_PLT = $(HOME)/.webmachine_dialyzer_plt
 
-include tools.mk
-
 verbosetest: all
-	@(./rebar -v skip_deps=true eunit)
+	@(./rebar3 -v skip_deps=true eunit)
 
 travisupload:
 	tar cvfz ${ARTIFACTSFILE} --exclude '*.beam' --exclude '*.erl' test.log .eunit
 	travis-artifacts upload --path ${ARTIFACTSFILE}
 
 DEV_MODE:
-	@[ -d ./.rebar ] || mkdir ./.rebar
-	@touch ./.rebar/DEV_MODE
+	@[ -d ./.rebar3 ] || mkdir ./.rebar3
+	@touch ./.rebar3/DEV_MODE
