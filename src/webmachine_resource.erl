@@ -184,7 +184,8 @@ resource_call(F, ReqData, {?MODULE, R_Mod, R_ModState, _, R_Trace}) ->
     end,
     Result = try
         apply(R_Mod, F, [ReqData, R_ModState])
-    catch C:R:Trace ->
+    catch C:R ->
+            Trace  = erlang:get_stackstrace(),
             Reason = {C, R, trim_trace(Trace)},
             {{error, Reason}, ReqData, R_ModState}
     end,

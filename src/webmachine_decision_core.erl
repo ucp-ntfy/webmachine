@@ -32,8 +32,8 @@ handle_request(Resource, ReqState) ->
     try
         d(v3b13)
     catch
-        error:_:Trace ->
-            error_response(Trace)
+        error:Reason ->
+            error_response(Reason)
     end.
 
 wrcall(X) ->
